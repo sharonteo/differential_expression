@@ -150,7 +150,7 @@ def save_results(
     output.mkdir(parents=True, exist_ok=True)
     for name, table in result_tables.items():
         table.to_csv(output / f"{name}.txt", sep="\t", index=False)
-    summary.to_csv(output / "_summary_all_comparisons.csv", index=False)
+    summary.to_csv(output / "_summary_all_comparisons.txt", sep="\t", index=False)
 
 
 def results_zip(
@@ -158,7 +158,7 @@ def results_zip(
 ) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("_summary_all_comparisons.csv", summary.to_csv(index=False))
+        archive.writestr("_summary_all_comparisons.txt", summary.to_csv(sep="\t", index=False))
         for name, table in result_tables.items():
             archive.writestr(
                 f"{name}.txt", table.to_csv(sep="\t", index=False)
