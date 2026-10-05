@@ -169,7 +169,7 @@ if 'de_results' in st.session_state:
             st.warning(f"Full gene names could not be retrieved; gene symbols are still shown. {exc}")
     st.subheader("Comparison summary")
     st.dataframe(summary, use_container_width=True, hide_index=True)
-    st.download_button("Download original results as ZIP", results_zip(output_tables, summary),
+    st.download_button("Export analysis results", results_zip(output_tables, summary),
                        file_name="pairwise_differential_expression_results.zip", mime="application/zip")
     st.subheader("Gene results")
     collapse = st.checkbox("Collapse probes / transcript IDs to one row per gene")
