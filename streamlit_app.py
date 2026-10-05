@@ -143,7 +143,7 @@ if 'de_results' in st.session_state:
     for name, table in tables.items():
         output = table.copy()
         if 'transcript' in output:
-            output['transcript'] = output['transcript'].astype('string').str.replace(r'^.*_', '', regex=True)
+            output['transcript'] = output['transcript'].astype('string').str.replace(r'_.*$', '', regex=True)
         output_tables[name] = output
     st.subheader("Comparison summary")
     st.dataframe(summary, use_container_width=True, hide_index=True)
@@ -191,7 +191,7 @@ if 'de_results' in st.session_state:
                     if 'transcript' in gene_tables[name]:
                         gene_tables[name]['transcript'] = (
                             gene_tables[name]['transcript'].astype('string')
-                            .str.replace(r'^.*_', '', regex=True)
+                            .str.replace(r'_.*$', '', regex=True)
                         )
                     if dropped:
                         st.warning(f"{name}: {dropped} entries without a gene were excluded.")
