@@ -174,6 +174,11 @@ if 'de_results' in st.session_state:
         p_col = st.selectbox("P-value column", ['pvalue', 'padj'])
         strip_version = st.checkbox("Remove ID version suffixes before mapping")
         split_multi = st.checkbox("Split genes separated by ///, semicolon, or comma")
+        clean_transcript = st.checkbox(
+            "Remove gene prefix from transcript IDs (CLEC4E_21846 → 21846)",
+            value=True,
+            help="Changes the transcript column in gene results only. The gene column remains available for collapsing and descriptions.",
+        )
         if ready:
             try:
                 gene_tables = {}
@@ -181,6 +186,11 @@ if 'de_results' in st.session_state:
                     gene_tables[name], dropped = collapse_to_genes(table, id_col=id_col, mapping=mapping,
                         strip_suffix=suffix, method='min_p' if method_label.startswith('Lowest') else 'max_abs_fc',
                         p_col=p_col, strip_version=strip_version, split_multi=split_multi)
+                    if clean_transcript and id_col == 'transcript':
+                        gene_tables[name]['transcript'] = (
+                            gene_tables[name]['transcript'].astype('string')
+                            .str.replace(r'^.*_', '', regex=True)
+                        )
                     if dropped:
                         st.warning(f"{name}: {dropped} entries without a gene were excluded.")
             except Exception as exc:
