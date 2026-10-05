@@ -145,7 +145,7 @@ if 'de_results' in st.session_state:
         if 'transcript' in output:
             output['transcript'] = output['transcript'].astype('string').str.replace(r'_.*$', '', regex=True)
         output_tables[name] = output
-    show_gene_names = st.checkbox("Show full gene names in transcript column", value=True)
+    show_gene_names = st.checkbox("Show gene annotation beside transcript", value=True)
     name_lookup = {}
     if show_gene_names and any('transcript' in t for t in output_tables.values()):
         name_species = st.selectbox("Species for full gene names", ['human', 'mouse', 'rat'])
@@ -160,8 +160,10 @@ if 'de_results' in st.session_state:
                 name_lookup = names.set_index('gene')['gene_name'].fillna('').to_dict()
             for output in output_tables.values():
                 if 'transcript' in output:
-                    output['transcript'] = output['transcript'].map(
-                        lambda symbol: f"{symbol} {name_lookup[symbol]}" if name_lookup.get(symbol) else symbol
+                    output.insert(
+                        output.columns.get_loc('transcript') + 1,
+                        'gene annotation',
+                        output['transcript'].map(name_lookup).fillna('Annotation unavailable'),
                     )
         except Exception as exc:
             st.warning(f"Full gene names could not be retrieved; gene symbols are still shown. {exc}")
@@ -214,8 +216,10 @@ if 'de_results' in st.session_state:
                             .str.replace(r'_.*$', '', regex=True)
                         )
                         if show_gene_names:
-                            gene_tables[name]['transcript'] = gene_tables[name]['transcript'].map(
-                                lambda symbol: f"{symbol} {name_lookup[symbol]}" if name_lookup.get(symbol) else symbol
+                            gene_tables[name].insert(
+                                gene_tables[name].columns.get_loc('transcript') + 1,
+                                'gene annotation',
+                                gene_tables[name]['transcript'].map(name_lookup).fillna('Annotation unavailable'),
                             )
                     if dropped:
                         st.warning(f"{name}: {dropped} entries without a gene were excluded.")
