@@ -76,6 +76,6 @@ def fetch_gene_descriptions(genes, species='human'):
             hit = next(iter(unique.values()))
             summary = re.sub(r'\s+', ' ', hit.get('summary', '')).strip()
             brief = re.split(r'(?<=[.!?])\s+', summary)[0] if summary else hit.get('name', 'Description unavailable')
-            records.append({'gene': gene, 'gene_description': brief, 'gene_summary': summary,
+            records.append({'gene': gene, 'gene_name': hit.get('name', ''), 'gene_description': brief, 'gene_summary': summary,
                             'description_source': f"https://www.ncbi.nlm.nih.gov/gene/{hit['entrezgene']}" if hit.get('entrezgene') else 'https://mygene.info'})
     return pd.DataFrame(records)
