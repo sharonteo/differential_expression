@@ -138,9 +138,16 @@ if uploaded is not None:
 
 if 'de_results' in st.session_state:
     tables, summary, result_alpha = st.session_state['de_results']
+    # Keep full IDs internally for gene assignment; clean result outputs.
+    output_tables = {}
+    for name, table in tables.items():
+        output = table.copy()
+        if 'transcript' in output:
+            output['transcript'] = output['transcript'].astype('string').str.replace(r'^.*_', '', regex=True)
+        output_tables[name] = output
     st.subheader("Comparison summary")
     st.dataframe(summary, use_container_width=True, hide_index=True)
-    st.download_button("Download original results as ZIP", results_zip(tables, summary),
+    st.download_button("Download original results as ZIP", results_zip(output_tables, summary),
                        file_name="pairwise_differential_expression_results.zip", mime="application/zip")
     st.subheader("Gene results")
     collapse = st.checkbox("Collapse probes / transcript IDs to one row per gene")
@@ -174,11 +181,6 @@ if 'de_results' in st.session_state:
         p_col = st.selectbox("P-value column", ['pvalue', 'padj'])
         strip_version = st.checkbox("Remove ID version suffixes before mapping")
         split_multi = st.checkbox("Split genes separated by ///, semicolon, or comma")
-        clean_transcript = st.checkbox(
-            "Remove gene prefix from transcript IDs (CLEC4E_21846 → 21846)",
-            value=True,
-            help="Changes the transcript column in gene results only. The gene column remains available for collapsing and descriptions.",
-        )
         if ready:
             try:
                 gene_tables = {}
@@ -186,7 +188,7 @@ if 'de_results' in st.session_state:
                     gene_tables[name], dropped = collapse_to_genes(table, id_col=id_col, mapping=mapping,
                         strip_suffix=suffix, method='min_p' if method_label.startswith('Lowest') else 'max_abs_fc',
                         p_col=p_col, strip_version=strip_version, split_multi=split_multi)
-                    if clean_transcript and id_col == 'transcript':
+                    if 'transcript' in gene_tables[name]:
                         gene_tables[name]['transcript'] = (
                             gene_tables[name]['transcript'].astype('string')
                             .str.replace(r'^.*_', '', regex=True)
@@ -215,7 +217,7 @@ if 'de_results' in st.session_state:
             st.download_button("Download gene results as ZIP", results_zip(
                 {name + '_genes': table for name, table in gene_tables.items()}, gene_summary),
                 file_name="collapsed_gene_results.zip", mime="application/zip")
-    display_tables = gene_tables if gene_tables is not None else tables
+    display_tables = gene_tables if gene_tables is not None else output_tables
     comparison = st.selectbox("Inspect one result", list(display_tables))
     result = display_tables[comparison]
     st.write(f"**{len(result):,} rows**")
