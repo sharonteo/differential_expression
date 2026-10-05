@@ -42,6 +42,12 @@ require_password()
 # Load the scientific stack only after authentication.
 import pandas as pd
 
+from gene_results import collapse_to_genes, fetch_gene_descriptions
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_descriptions(genes, species):
+    return fetch_gene_descriptions(genes, species)
+
 from deseq2_pairwise import (
     AnalysisConfig,
     available_comparisons,
@@ -128,17 +134,79 @@ if uploaded is not None:
 
         progress_bar.progress(1.0, text="Analysis complete")
         st.success(f"Retained {retained:,} of {len(counts):,} features after filtering.")
-        st.subheader("Comparison summary")
-        st.dataframe(summary, use_container_width=True, hide_index=True)
+        st.session_state['de_results'] = (tables, summary, float(alpha))
 
-        comparison = st.selectbox("Inspect one result", list(tables))
-        result = tables[comparison]
-        significant = result[result["padj"].lt(alpha).fillna(False)]
-        st.write(f"**{len(significant):,} significant features** at adjusted p < {alpha:g}")
-        st.dataframe(result.head(500), use_container_width=True, hide_index=True)
-        st.download_button(
-            "Download all results as ZIP",
-            results_zip(tables, summary),
-            file_name="pairwise_differential_expression_results.zip",
-            mime="application/zip",
-        )
+if 'de_results' in st.session_state:
+    tables, summary, result_alpha = st.session_state['de_results']
+    st.subheader("Comparison summary")
+    st.dataframe(summary, use_container_width=True, hide_index=True)
+    st.download_button("Download original results as ZIP", results_zip(tables, summary),
+                       file_name="pairwise_differential_expression_results.zip", mime="application/zip")
+    st.subheader("Gene results")
+    collapse = st.checkbox("Collapse probes / transcript IDs to one row per gene")
+    gene_tables = None
+    if collapse:
+        st.caption("Keeps one existing result per gene; p-values and adjusted p-values are not recalculated gene-level tests.")
+        id_col = st.selectbox("ID column", list(next(iter(tables.values())).columns))
+        mode = st.selectbox("How to identify genes", ["Remove numeric probe suffix (CLEC4E_21846 → CLEC4E)", "IDs already contain gene names", "Upload transcript-to-gene mapping"])
+        mapping = None
+        suffix = None
+        ready = True
+        if mode.startswith("Remove"):
+            suffix = st.text_input("Suffix pattern to remove", r"_[0-9]+$")
+        elif mode.startswith("Upload"):
+            map_file = st.file_uploader("Mapping CSV or TSV (header required)", type=['csv', 'tsv', 'txt'])
+            ready = map_file is not None
+            if ready:
+                try:
+                    m = pd.read_csv(map_file, sep=None, engine='python', dtype=str)
+                    mi = st.selectbox("Mapping ID column", list(m.columns))
+                    mg = st.selectbox("Mapping gene column", list(m.columns), index=min(1, len(m.columns)-1))
+                    if mi == mg:
+                        st.error("Choose different mapping columns.")
+                        ready = False
+                    else:
+                        mapping = m.loc[:, [mi, mg]]
+                except Exception as exc:
+                    st.error(str(exc))
+                    ready = False
+        method_label = st.selectbox("Representative row", ['Lowest p-value', 'Largest absolute log2 fold change'])
+        p_col = st.selectbox("P-value column", ['pvalue', 'padj'])
+        strip_version = st.checkbox("Remove ID version suffixes before mapping")
+        split_multi = st.checkbox("Split genes separated by ///, semicolon, or comma")
+        if ready:
+            try:
+                gene_tables = {}
+                for name, table in tables.items():
+                    gene_tables[name], dropped = collapse_to_genes(table, id_col=id_col, mapping=mapping,
+                        strip_suffix=suffix, method='min_p' if method_label.startswith('Lowest') else 'max_abs_fc',
+                        p_col=p_col, strip_version=strip_version, split_multi=split_multi)
+                    if dropped:
+                        st.warning(f"{name}: {dropped} entries without a gene were excluded.")
+            except Exception as exc:
+                st.error(str(exc))
+                gene_tables = None
+        if gene_tables is not None:
+            species = st.selectbox("Species for gene descriptions", ['human', 'mouse', 'rat'])
+            annotate = st.checkbox("Add gene-function descriptions from MyGene.info / NCBI")
+            st.caption("Lookup sends gene identifiers and species only. Unmatched or ambiguous genes are labeled; descriptions require internet access.")
+            if annotate:
+                try:
+                    genes = tuple(sorted(set(g for table in gene_tables.values() for g in table['gene'])))
+                    with st.spinner("Looking up gene descriptions…"):
+                        annotations = cached_descriptions(genes, species)
+                    gene_tables = {name: table.merge(annotations, on='gene', how='left', validate='many_to_one') for name, table in gene_tables.items()}
+                except Exception as exc:
+                    st.warning(f"Descriptions could not be retrieved. Collapsed results are still available. {exc}")
+            gene_summary = pd.DataFrame([{'comparison': name, 'n_genes': len(table),
+                'n_selected_rows_padj_below_threshold': int(table['padj'].lt(result_alpha).sum())}
+                for name, table in gene_tables.items()])
+            st.dataframe(gene_summary, hide_index=True)
+            st.download_button("Download gene results as ZIP", results_zip(
+                {name + '_genes': table for name, table in gene_tables.items()}, gene_summary),
+                file_name="collapsed_gene_results.zip", mime="application/zip")
+    display_tables = gene_tables if gene_tables is not None else tables
+    comparison = st.selectbox("Inspect one result", list(display_tables))
+    result = display_tables[comparison]
+    st.write(f"**{len(result):,} rows**")
+    st.dataframe(result.head(500), use_container_width=True, hide_index=True)
