@@ -46,7 +46,7 @@ from gene_results import collapse_to_genes, fetch_gene_descriptions
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_descriptions(genes, species):
-    return fetch_gene_descriptions(genes, species)
+    return fetch_gene_descriptions(genes, species=species)
 
 from deseq2_pairwise import (
     AnalysisConfig,
@@ -145,6 +145,26 @@ if 'de_results' in st.session_state:
         if 'transcript' in output:
             output['transcript'] = output['transcript'].astype('string').str.replace(r'_.*$', '', regex=True)
         output_tables[name] = output
+    show_gene_names = st.checkbox("Show full gene names in transcript column", value=True)
+    name_lookup = {}
+    if show_gene_names and any('transcript' in t for t in output_tables.values()):
+        name_species = st.selectbox("Species for full gene names", ['human', 'mouse', 'rat'])
+        try:
+            symbols = tuple(sorted(set(
+                str(gene) for t in output_tables.values() if 'transcript' in t
+                for gene in t['transcript'].dropna()
+            )))
+            with st.spinner("Looking up full gene names…"):
+                names = cached_descriptions(symbols, name_species)
+            if 'gene_name' in names:
+                name_lookup = names.set_index('gene')['gene_name'].fillna('').to_dict()
+            for output in output_tables.values():
+                if 'transcript' in output:
+                    output['transcript'] = output['transcript'].map(
+                        lambda symbol: f"{symbol} {name_lookup[symbol]}" if name_lookup.get(symbol) else symbol
+                    )
+        except Exception as exc:
+            st.warning(f"Full gene names could not be retrieved; gene symbols are still shown. {exc}")
     st.subheader("Comparison summary")
     st.dataframe(summary, use_container_width=True, hide_index=True)
     st.download_button("Download original results as ZIP", results_zip(output_tables, summary),
@@ -193,6 +213,10 @@ if 'de_results' in st.session_state:
                             gene_tables[name]['transcript'].astype('string')
                             .str.replace(r'_.*$', '', regex=True)
                         )
+                        if show_gene_names:
+                            gene_tables[name]['transcript'] = gene_tables[name]['transcript'].map(
+                                lambda symbol: f"{symbol} {name_lookup[symbol]}" if name_lookup.get(symbol) else symbol
+                            )
                     if dropped:
                         st.warning(f"{name}: {dropped} entries without a gene were excluded.")
             except Exception as exc:
