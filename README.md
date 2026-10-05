@@ -58,3 +58,31 @@ because PyDESeq2's coefficient-based apeGLM shrinkage does not support every
 arbitrary pairwise contrast from one fitted multi-group model. For regulated
 or publication-critical work requiring exact R DESeq2/ashr output, retain the
 R engine and use Python/Streamlit only as the interface.
+
+## Collapse transcript / probe results to genes
+
+After analysis, enable **Collapse probes / transcript IDs to one row per gene**.
+Choose embedded symbols (e.g. `CLEC4E_21846` becomes `CLEC4E`), existing gene
+names, or a headered CSV/TSV mapping. Select its ID and gene columns. Ensembl
+transcript IDs require a mapping; removing suffixes alone does not identify
+their genes. Version removal and splitting multi-gene labels are optional.
+
+The representative row defaults to the lowest p-value (`pvalue` or `padj`);
+alternatively select the largest absolute log2 fold change. Missing scores rank
+last and ties keep original input order. `n_probes` counts the original rows
+represented by each gene. Unmapped / blank genes are excluded with a warning;
+conflicting mappings are rejected. Original results remain downloadable.
+
+Enable gene descriptions and select human, mouse, or rat. MyGene.info retrieves
+published gene summaries; the first sentence is shown as `gene_description`,
+with the full text in `gene_summary` and an NCBI link in `description_source`.
+If no summary exists, the gene name is used. Missing / ambiguous matches are
+labeled rather than guessed. Lookups send gene identifiers and species only,
+require internet access, and are cached for 24 hours. Lookup failure does not
+prevent downloading collapsed results. API reference: https://docs.mygene.info/en/latest/doc/quick_start.html
+
+**Statistical interpretation:** this is representative-row selection after
+transcript-level analysis, not a gene-level DESeq2 fit. Retained p-values and
+adjusted p-values are the original transcript/probe statistics; choosing the
+smallest p-value across probes can favor genes with more probes. For formal
+gene-level inference, aggregate appropriate raw counts to genes before fitting.
