@@ -63,24 +63,52 @@ def ligand_links(record):
                       for ligand in record['ligands'])
 
 
+def _request_json(request):
+    """Retry temporary API failures without caching failures as missing matches."""
+    from urllib.error import HTTPError, URLError
+    import time
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                raise
+            try:
+                delay = min(10, max(1, float(exc.headers.get('Retry-After', 2 ** attempt))))
+            except (TypeError, ValueError):
+                delay = 2 ** attempt
+            time.sleep(delay)
+        except (URLError, TimeoutError):
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
+
+
 def fetch_pubchem(ligand):
-    """Resolve the CCD OpenEye canonical SMILES through PubChem PUG REST."""
+    """Resolve CCD OpenEye canonical SMILES using a form-encoded POST.
+
+    SMILES may contain slashes and other reserved URL characters, so they
+    belong in the request body rather than the URL path.
+    """
     from urllib.parse import quote
+    from urllib.request import Request
     from urllib.error import HTTPError
-    with urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/' + quote(ligand, safe=''),
-                 timeout=30) as response:
-        component = json.load(response)
+    component = _request_json(
+        'https://data.rcsb.org/rest/v1/core/chemcomp/' + quote(ligand, safe=''))
     smiles = next((item['descriptor'] for item in
                    component.get('pdbx_chem_comp_descriptor', [])
                    if item.get('type') == 'SMILES_CANONICAL'
                    and item.get('program') == 'OpenEye OEToolkits'), None)
     if not smiles:
         return {'smiles': None, 'compounds': []}
-    url = ('https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/'
-           + quote(smiles, safe='') + '/property/Title,MolecularFormula,MolecularWeight/JSON')
+    request = Request(
+        'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/'
+        'property/Title,MolecularFormula,MolecularWeight/JSON',
+        data=urlencode({'smiles': smiles}).encode(),
+        headers={'Content-Type': 'application/x-www-form-urlencoded'})
     try:
-        with urlopen(url, timeout=30) as response:
-            result = json.load(response)
+        result = _request_json(request)
     except HTTPError as exc:
         if exc.code == 404:
             return {'smiles': smiles, 'compounds': []}

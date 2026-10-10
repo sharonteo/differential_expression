@@ -308,8 +308,8 @@ if 'de_results' in st.session_state:
             for ligand in ligands:
                 try:
                     compounds[ligand] = cached_pubchem(ligand)
-                except Exception:
-                    pubchem_failures.append(ligand)
+                except Exception as exc:
+                    pubchem_failures.append(f"{ligand}: {type(exc).__name__}: {exc}")
                 time.sleep(0.25)
         def compound_cell(gene):
             record = records.get(str(gene))
@@ -325,6 +325,9 @@ if 'de_results' in st.session_state:
                    "Click a compound name or CID to open its PubChem record.")
         if pubchem_failures:
             st.warning(f"PubChem lookup unavailable for {len(pubchem_failures)} ligand(s). Rerun to retry.")
+            with st.expander("Lookup failure details"):
+                for failure in pubchem_failures:
+                    st.text(failure)
         st.caption("Ligand IDs link to RCSB ligand pages. PDB structures show the source entries. "
                    "These are molecules present in matching gene/species structures, including salts "
                    "and crystallization additives; binding to this protein is not established by this table. "
