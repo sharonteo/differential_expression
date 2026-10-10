@@ -1,6 +1,9 @@
 """Streamlit interface for pairwise miRNA/transcript differential expression."""
 
 import hmac
+from concurrent.futures import ThreadPoolExecutor
+
+from rcsb_ligands import fetch_ligands, ligand_links
 
 import streamlit as st
 
@@ -43,6 +46,11 @@ require_password()
 import pandas as pd
 
 from gene_results import collapse_to_genes, fetch_gene_descriptions
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_ligands(gene, species):
+    return fetch_ligands(gene, species)
+
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_descriptions(genes, species):
@@ -249,4 +257,48 @@ if 'de_results' in st.session_state:
     comparison = st.selectbox("Inspect one result", list(display_tables))
     result = display_tables[comparison]
     st.write(f"**{len(result):,} rows**")
-    st.dataframe(result.head(500), use_container_width=True, hide_index=True)
+    if 'transcript' not in result:
+        st.dataframe(result.head(500), use_container_width=True, hide_index=True)
+    else:
+        ligand_species = st.selectbox("Species for RCSB ligand lookup", ['human', 'mouse', 'rat'],
+                                      index=['human', 'mouse', 'rat'].index(
+                                          name_species if show_gene_names else 'human'))
+        page_count = max(1, (len(result) + 24) // 25)
+        page = st.number_input("Results page (25 rows per page)", 1, page_count, 1)
+        viewed = result.iloc[(page - 1) * 25:page * 25].copy()
+        lookup_col = 'gene' if 'gene' in viewed else 'transcript'
+        genes = list(dict.fromkeys(str(g) for g in viewed[lookup_col].dropna()))
+        records = {}
+        failures = []
+        def lookup(gene):
+            try:
+                return gene, cached_ligands(gene, ligand_species), None
+            except Exception:
+                return gene, None, 'Lookup unavailable; retry'
+        with st.spinner("Looking up RCSB ligands for this page…"):
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                for gene, record, error in pool.map(lookup, genes):
+                    records[gene] = record
+                    if error:
+                        failures.append(gene)
+        position = viewed.columns.get_loc(
+            'gene annotation' if 'gene annotation' in viewed else 'transcript') + 1
+        viewed.insert(position, 'Ligand IDs', [
+            ligand_links(records[str(g)]) if records.get(str(g)) else 'Lookup unavailable; retry'
+            for g in viewed[lookup_col]
+        ])
+        viewed.insert(position + 1, 'PDB structures', [
+            ' · '.join(f'[{sid}](https://www.rcsb.org/structure/{sid})'
+                       for sid in records[str(g)]['structures']) if records.get(str(g)) else ''
+            for g in viewed[lookup_col]
+        ])
+        st.caption("Ligand IDs link to RCSB ligand pages. PDB structures show the source entries. "
+                   "These are molecules present in matching gene/species structures, including salts "
+                   "and crystallization additives; binding to this protein is not established by this table. "
+                   "Modified residues are excluded. Lookups are cached for 24 hours.")
+        if failures:
+            st.warning(f"RCSB lookup unavailable for {len(failures)} gene(s). Change pages or rerun to retry.")
+        st.caption(f"Page {page} of {page_count}; rows {(page - 1) * 25 + 1}–{min(page * 25, len(result))}.")
+        st.table(viewed)
+        st.download_button("Export this page with ligand links", viewed.to_csv(sep='\t', index=False),
+                           file_name="gene_results_with_ligands.tsv", mime="text/tab-separated-values")
