@@ -3,7 +3,7 @@
 import hmac
 from concurrent.futures import ThreadPoolExecutor
 
-from rcsb_ligands import fetch_ligands, ligand_links
+from rcsb_ligands import fetch_ligands, ligand_links, fetch_pubchem, pubchem_links
 
 import streamlit as st
 
@@ -46,6 +46,11 @@ require_password()
 import pandas as pd
 
 from gene_results import collapse_to_genes, fetch_gene_descriptions
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_pubchem(ligand):
+    return fetch_pubchem(ligand)
+
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_ligands(gene, species):
@@ -292,6 +297,34 @@ if 'de_results' in st.session_state:
                        for sid in records[str(g)]['structures']) if records.get(str(g)) else ''
             for g in viewed[lookup_col]
         ])
+        ligands = sorted({ligand for record in records.values() if record
+                          for ligand in record['ligands']})
+        compounds = {}
+        pubchem_failures = []
+        # PubChem asks clients to stay below five requests per second.
+        # Serial requests plus a pause keep this lookup below that limit.
+        import time
+        with st.spinner("Matching ligand SMILES in PubChem…"):
+            for ligand in ligands:
+                try:
+                    compounds[ligand] = cached_pubchem(ligand)
+                except Exception:
+                    pubchem_failures.append(ligand)
+                time.sleep(0.25)
+        def compound_cell(gene):
+            record = records.get(str(gene))
+            if not record:
+                return 'Ligand lookup unavailable'
+            return ' · '.join(
+                pubchem_links(ligand, compounds[ligand]) if ligand in compounds
+                else f'{ligand}: PubChem lookup unavailable; retry'
+                for ligand in record['ligands']) or '—'
+        viewed.insert(position + 2, 'PubChem results',
+                      [compound_cell(g) for g in viewed[lookup_col]])
+        st.caption("PubChem results use each ligand's Canonical SMILES from OpenEye OEToolkits. "
+                   "Click a compound name or CID to open its PubChem record.")
+        if pubchem_failures:
+            st.warning(f"PubChem lookup unavailable for {len(pubchem_failures)} ligand(s). Rerun to retry.")
         st.caption("Ligand IDs link to RCSB ligand pages. PDB structures show the source entries. "
                    "These are molecules present in matching gene/species structures, including salts "
                    "and crystallization additives; binding to this protein is not established by this table. "

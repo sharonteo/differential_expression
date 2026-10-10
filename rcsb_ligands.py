@@ -61,3 +61,40 @@ def ligand_links(record):
         return 'No ligands listed'
     return ' · '.join(f'[{ligand}](https://www.rcsb.org/ligand/{ligand})'
                       for ligand in record['ligands'])
+
+
+def fetch_pubchem(ligand):
+    """Resolve the CCD OpenEye canonical SMILES through PubChem PUG REST."""
+    from urllib.parse import quote
+    from urllib.error import HTTPError
+    with urlopen('https://data.rcsb.org/rest/v1/core/chemcomp/' + quote(ligand, safe=''),
+                 timeout=30) as response:
+        component = json.load(response)
+    smiles = next((item['descriptor'] for item in
+                   component.get('pdbx_chem_comp_descriptor', [])
+                   if item.get('type') == 'SMILES_CANONICAL'
+                   and item.get('program') == 'OpenEye OEToolkits'), None)
+    if not smiles:
+        return {'smiles': None, 'compounds': []}
+    url = ('https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/'
+           + quote(smiles, safe='') + '/property/Title,MolecularFormula,MolecularWeight/JSON')
+    try:
+        with urlopen(url, timeout=30) as response:
+            result = json.load(response)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return {'smiles': smiles, 'compounds': []}
+        raise
+    return {'smiles': smiles,
+            'compounds': result['PropertyTable']['Properties']}
+
+
+def pubchem_links(ligand, record):
+    if not record['smiles']:
+        return f'{ligand}: OpenEye canonical SMILES unavailable'
+    if not record['compounds']:
+        return f'{ligand}: No PubChem match'
+    return ' · '.join(
+        f"{ligand}: [{item.get('Title', 'Compound')} (CID {item['CID']})]"
+        f"(https://pubchem.ncbi.nlm.nih.gov/compound/{item['CID']})"
+        for item in record['compounds'])
