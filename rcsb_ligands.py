@@ -102,6 +102,11 @@ def fetch_pubchem(ligand):
                    and item.get('program') == 'OpenEye OEToolkits'), None)
     if not smiles:
         return {'smiles': None, 'compounds': []}
+    if '*' in smiles:
+        return {'smiles': smiles, 'compounds': [],
+                'reason': ('Unknown atom or ion — PubChem match not applicable'
+                           if ligand.upper() == 'UNX' else
+                           'Undefined atoms in SMILES — PubChem match not applicable')}
     request = Request(
         'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/'
         'property/Title,MolecularFormula,MolecularWeight/JSON',
@@ -118,6 +123,8 @@ def fetch_pubchem(ligand):
 
 
 def pubchem_links(ligand, record):
+    if record.get('reason'):
+        return f"{ligand}: {record['reason']}"
     if not record['smiles']:
         return f'{ligand}: OpenEye canonical SMILES unavailable'
     if not record['compounds']:
