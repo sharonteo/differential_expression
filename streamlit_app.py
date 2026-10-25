@@ -73,8 +73,8 @@ from deseq2_pairwise import (
 
 
 def clean_result_rows(table: pd.DataFrame) -> pd.DataFrame:
-    """Remove rows missing an identifier, fold change, or adjusted p-value."""
-    required = [c for c in ("transcript", "miRNA", "gene", "log2FoldChange", "padj")
+    """Check only transcript, log2FoldChange, and padj for missing values."""
+    required = [c for c in ("transcript", "log2FoldChange", "padj")
                 if c in table.columns]
     table = table.copy()
     table[required] = table[required].replace(
