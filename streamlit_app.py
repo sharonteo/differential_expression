@@ -72,6 +72,33 @@ from deseq2_pairwise import (
 )
 
 
+def clean_result_rows(table: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows missing an identifier, fold change, or adjusted p-value."""
+    required = [c for c in ("transcript", "miRNA", "gene", "log2FoldChange", "padj")
+                if c in table.columns]
+    table = table.copy()
+    table[required] = table[required].replace(
+        r"(?i)^\s*(?:na|n/a|nan)?\s*$", pd.NA, regex=True
+    )
+    return table.dropna(subset=required).reset_index(drop=True)
+
+
+def format_download_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Format export copies without rounding the analysis values."""
+    table = clean_result_rows(table)
+    for column in ("log2FoldChange", "padj"):
+        if column in table:
+            table[column] = table[column].map(lambda value: f"{value:.4f}")
+    return table
+
+
+def download_results_zip(tables, summary):
+    return results_zip(
+        {name: format_download_table(table) for name, table in tables.items()},
+        summary,
+    )
+
+
 st.title("Pairwise Differential Expression")
 st.caption("DESeq2-style analysis in Python using PyDESeq2")
 
@@ -151,13 +178,21 @@ if uploaded is not None:
 
 if 'de_results' in st.session_state:
     tables, summary, result_alpha = st.session_state['de_results']
+    tables = {name: clean_result_rows(table) for name, table in tables.items()}
+    summary = summary.copy()
+    summary["n_tested"] = summary["comparison"].map(
+        {name: len(table) for name, table in tables.items()}
+    )
+    summary[f"n_sig_padj{result_alpha:g}"] = summary["comparison"].map(
+        {name: int(table["padj"].lt(result_alpha).sum()) for name, table in tables.items()}
+    )
     # Keep full IDs internally for gene assignment; clean result outputs.
     output_tables = {}
     for name, table in tables.items():
         output = table.copy()
         if 'transcript' in output:
             output['transcript'] = output['transcript'].astype('string').str.replace(r'_.*$', '', regex=True)
-        output_tables[name] = output
+        output_tables[name] = clean_result_rows(output)
     show_gene_names = st.checkbox("Show gene annotation beside transcript", value=True)
     name_lookup = {}
     if show_gene_names and any('transcript' in t for t in output_tables.values()):
@@ -182,7 +217,7 @@ if 'de_results' in st.session_state:
             st.warning(f"Full gene names could not be retrieved; gene symbols are still shown. {exc}")
     st.subheader("Comparison summary")
     st.dataframe(summary, use_container_width=True, hide_index=True)
-    st.download_button("Export analysis results", results_zip(output_tables, summary),
+    st.download_button("Export analysis results", download_results_zip(output_tables, summary),
                        file_name="pairwise_differential_expression_results.zip", mime="application/zip")
     st.subheader("Gene results")
     collapse = st.checkbox("Collapse probes / transcript IDs to one row per gene")
@@ -234,6 +269,7 @@ if 'de_results' in st.session_state:
                                 'gene annotation',
                                 gene_tables[name]['transcript'].map(name_lookup).fillna('Annotation unavailable'),
                             )
+                    gene_tables[name] = clean_result_rows(gene_tables[name])
                     if dropped:
                         st.warning(f"{name}: {dropped} entries without a gene were excluded.")
             except Exception as exc:
@@ -255,7 +291,7 @@ if 'de_results' in st.session_state:
                 'n_selected_rows_padj_below_threshold': int(table['padj'].lt(result_alpha).sum())}
                 for name, table in gene_tables.items()])
             st.dataframe(gene_summary, hide_index=True)
-            st.download_button("Download gene results as ZIP", results_zip(
+            st.download_button("Download gene results as ZIP", download_results_zip(
                 {name + '_genes': table for name, table in gene_tables.items()}, gene_summary),
                 file_name="collapsed_gene_results.zip", mime="application/zip")
     display_tables = gene_tables if gene_tables is not None else output_tables
@@ -336,5 +372,5 @@ if 'de_results' in st.session_state:
             st.warning(f"RCSB lookup unavailable for {len(failures)} gene(s). Change pages or rerun to retry.")
         st.caption(f"Page {page} of {page_count}; rows {(page - 1) * 25 + 1}–{min(page * 25, len(result))}.")
         st.table(viewed)
-        st.download_button("Export this page with ligand links", viewed.to_csv(sep='\t', index=False),
+        st.download_button("Export this page with ligand links", format_download_table(viewed).to_csv(sep='\t', index=False),
                            file_name="gene_results_with_ligands.tsv", mime="text/tab-separated-values")
