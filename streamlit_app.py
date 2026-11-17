@@ -335,6 +335,13 @@ if 'de_results' in st.session_state:
     }
     if metacore_columns.keys() <= set(result.columns):
         metacore = result.loc[:, list(metacore_columns)].rename(columns=metacore_columns)
+        metacore["logfoldchange"] = metacore["logfoldchange"].map(
+            lambda value: f"{value:.4f}", na_action="ignore"
+        )
+        metacore["pvalue"] = metacore["pvalue"].map(
+            lambda value: f"{value:.4e}" if 0 < value < 0.0001 else f"{value:.4f}",
+            na_action="ignore",
+        )
         st.download_button(
             "Export in MetaCore format",
             metacore.to_csv(sep='\t', index=False, lineterminator='\n'),
