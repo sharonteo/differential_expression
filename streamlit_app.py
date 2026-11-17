@@ -298,6 +298,22 @@ if 'de_results' in st.session_state:
     comparison = st.selectbox("Inspect one result", list(display_tables))
     result = display_tables[comparison]
     st.write(f"**{len(result):,} rows**")
+    page_lookup_columns = ['Ligand IDs', 'PDB structures', 'PubChem results']
+    sort_columns = list(result.columns)
+    if 'transcript' in result:
+        annotation = 'gene annotation' if 'gene annotation' in result else 'transcript'
+        lookup_position = sort_columns.index(annotation) + 1
+        sort_columns[lookup_position:lookup_position] = page_lookup_columns
+    sort_controls, direction_controls = st.columns(2)
+    sort_column = sort_controls.selectbox("Sort by", sort_columns, index=None,
+                                          placeholder="Original result order")
+    ascending = direction_controls.selectbox(
+        "Sort direction", ["Ascending", "Descending"], disabled=sort_column is None
+    ) == "Ascending"
+    if sort_column in page_lookup_columns:
+        st.caption("Ligand IDs, PDB structures, and PubChem results sort within the current page.")
+    elif sort_column is not None:
+        result = result.sort_values(sort_column, ascending=ascending, kind='stable')
     if 'transcript' not in result:
         st.dataframe(result.head(500), use_container_width=True, hide_index=True)
     else:
@@ -357,6 +373,13 @@ if 'de_results' in st.session_state:
                 for ligand in record['ligands']) or '—'
         viewed.insert(position + 2, 'PubChem results',
                       [compound_cell(g) for g in viewed[lookup_col]])
+        if sort_column in page_lookup_columns:
+            viewed = viewed.sort_values(
+                sort_column, ascending=ascending, kind='stable',
+                key=lambda cells: cells.str.replace(
+                    r'\[([^\]]+)\]\(https?://[^)]*\)', r'\1', regex=True
+                ).str.casefold(),
+            )
         st.caption("PubChem results use each ligand's Canonical SMILES from OpenEye OEToolkits. "
                    "Click a compound name or CID to open its PubChem record.")
         if pubchem_failures:
