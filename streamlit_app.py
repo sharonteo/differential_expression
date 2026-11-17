@@ -328,6 +328,20 @@ if 'de_results' in st.session_state:
         st.caption("Ligand IDs, PDB structures, and PubChem results sort within the current page.")
     elif sort_column is not None:
         result = result.sort_values(sort_column, ascending=ascending, kind='stable')
+    metacore_columns = {
+        "transcript": "transcript",
+        "log2FoldChange": "logfoldchange",
+        "pvalue": "pvalue",
+    }
+    if metacore_columns.keys() <= set(result.columns):
+        metacore = result.loc[:, list(metacore_columns)].rename(columns=metacore_columns)
+        st.download_button(
+            "Export in MetaCore format",
+            metacore.to_csv(sep='\t', index=False, lineterminator='\n'),
+            file_name="metacore_results.txt",
+            mime="text/plain",
+            disabled=metacore.empty,
+        )
     if 'transcript' not in result:
         st.dataframe(result.head(500), use_container_width=True, hide_index=True)
     elif not result.empty:
