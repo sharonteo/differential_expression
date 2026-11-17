@@ -297,6 +297,20 @@ if 'de_results' in st.session_state:
     display_tables = gene_tables if gene_tables is not None else output_tables
     comparison = st.selectbox("Inspect one result", list(display_tables))
     result = display_tables[comparison]
+    if 'transcript' in result:
+        query = st.text_input(
+            "Search by transcript",
+            placeholder="Enter all or part of a transcript ID",
+            on_change=st.session_state.pop,
+            args=("transcript_results_page", None),
+        ).strip()
+        if query:
+            matches = result['transcript'].astype('string').str.contains(
+                query, case=False, regex=False, na=False
+            )
+            result = result.loc[matches]
+            if result.empty:
+                st.info("No matching transcripts. Try another ID or clear the search.")
     st.write(f"**{len(result):,} rows**")
     page_lookup_columns = ['Ligand IDs', 'PDB structures', 'PubChem results']
     sort_columns = list(result.columns)
@@ -316,12 +330,15 @@ if 'de_results' in st.session_state:
         result = result.sort_values(sort_column, ascending=ascending, kind='stable')
     if 'transcript' not in result:
         st.dataframe(result.head(500), use_container_width=True, hide_index=True)
-    else:
+    elif not result.empty:
         ligand_species = st.selectbox("Species for RCSB ligand lookup", ['human', 'mouse', 'rat'],
                                       index=['human', 'mouse', 'rat'].index(
                                           name_species if show_gene_names else 'human'))
         page_count = max(1, (len(result) + 24) // 25)
-        page = st.number_input("Results page (25 rows per page)", 1, page_count, 1)
+        page = st.number_input(
+            "Results page (25 rows per page)", 1, page_count, 1,
+            key="transcript_results_page",
+        )
         viewed = result.iloc[(page - 1) * 25:page * 25].copy()
         lookup_col = 'gene' if 'gene' in viewed else 'transcript'
         genes = list(dict.fromkeys(str(g) for g in viewed[lookup_col].dropna()))
