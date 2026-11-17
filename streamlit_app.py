@@ -339,9 +339,8 @@ if 'de_results' in st.session_state:
             lambda value: f"{value:.4f}", na_action="ignore"
         )
         metacore["pvalue"] = metacore["pvalue"].map(
-            lambda value: f"{value:.4e}" if 0 < value < 0.0001 else f"{value:.4f}",
-            na_action="ignore",
-        )
+            lambda value: f"{value:.4f}", na_action="ignore"
+        ).replace("0.0000", "0")
         st.download_button(
             "Export in MetaCore format",
             metacore.to_csv(sep='\t', index=False, lineterminator='\n'),
